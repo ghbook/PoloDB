@@ -40,6 +40,7 @@ impl DbSnapshot {
 pub(crate) struct DbSnapshotDraft {
     base: DbSnapshot,
     page_map_draft: ImmutableMap<u32, Arc<RawPage>>,
+    dirty_pages: ImmutableMap<u32, Arc<RawPage>>,
     db_file_size: u64,
 }
 
@@ -51,18 +52,22 @@ impl DbSnapshotDraft {
         DbSnapshotDraft {
             base,
             page_map_draft,
+            dirty_pages: ImmutableMap::new(),
             db_file_size,
         }
     }
 
-    pub fn commit(self) -> DbSnapshot {
+    pub fn commit(&self) -> (DbSnapshot, ImmutableMap<u32, Arc<RawPage>>) {
         let db_file_size = self.db_file_size;
         let page_size = self.base.page_size;
-        DbSnapshot {
-            page_map: self.page_map_draft.clone(),
+        let page_map = self.page_map_draft.clone();
+        let dirty_pages = self.dirty_pages.clone();
+        let snapshot = DbSnapshot {
+            page_map,
             page_size,
             db_file_size,
-        }
+        };
+        (snapshot, dirty_pages)
     }
 
     pub fn read_page(&self, page_id: u32) -> Option<Arc<RawPage>> {

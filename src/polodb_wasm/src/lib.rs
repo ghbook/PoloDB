@@ -3,7 +3,7 @@ use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use js_sys::Reflect;
 #[cfg(target_arch = "wasm32")]
-use web_sys::IdbDatabase;
+use web_sys::{IdbDatabase, IdbObjectStoreParameters};
 #[cfg(target_arch = "wasm32")]
 use polodb_core::IndexedDbContext;
 use std::rc::Rc;
@@ -46,12 +46,6 @@ impl DatabaseWrapper {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    fn open_indexeddb(&mut self, _name: &str) -> Result<(), JsError> {
-        unreachable!()
-    }
-
-    #[cfg(target_arch = "wasm32")]
     fn open_indexeddb(&mut self, name: &str) -> Result<(), JsError> {
         let window = web_sys::window().unwrap();
         let factory = window.indexed_db().unwrap().expect("indexeddb not supported");
@@ -87,7 +81,12 @@ impl DatabaseWrapper {
             let on_onupgradeneeded = Closure::<dyn Fn()>::new(move || {
                 let open_request_dup = open_request_dup.clone();
                 let db = open_request_dup.result().unwrap().dyn_into::<IdbDatabase>().unwrap();
-                db.create_object_store("db_logs").unwrap();
+                let mut params = IdbObjectStoreParameters::new();
+                params.auto_increment(true);
+                db.create_object_store_with_optional_parameters(
+                    "db_logs",
+                    &params,
+                ).unwrap();
             });
             open_request.set_onupgradeneeded(Some(on_onupgradeneeded.as_ref().unchecked_ref()));
         }

@@ -4,5 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 mod indexeddb_backend;
+mod store_data;
 
 pub(crate) use indexeddb_backend::IndexedDbBackend;

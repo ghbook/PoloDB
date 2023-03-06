@@ -7,11 +7,13 @@ use std::cell::RefCell;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 use bson::oid::ObjectId;
+use web_sys::IdbTransactionMode;
 use crate::backend::Backend;
-use crate::backend::memory::MemoryBackendInner;
+use crate::backend::memory::{MemoryBackendInner, Transaction};
 use crate::{DbResult, TransactionType};
 use crate::page::RawPage;
 use crate::IndexedDbContext;
+use super::store_data::IndexedDbStoreFrame;
 
 #[allow(dead_code)]
 pub(crate) struct IndexedDbBackend {
@@ -89,7 +91,6 @@ impl Backend for IndexedDbBackend {
 }
 
 pub struct IndexedDbBackendInner {
-    #[allow(dead_code)]
     ctx: IndexedDbContext,
     mem: MemoryBackendInner,
 }
@@ -112,8 +113,42 @@ impl IndexedDbBackendInner {
     }
 
     fn commit(&mut self) -> DbResult<()> {
-        self.mem.commit()?;
+        let transaction = self.mem.commit()?;
+        self.write_transaction_to_indexeddb(&transaction)?;
         Ok(())
+    }
+
+    fn write_transaction_to_indexeddb(&mut self, transaction: &Transaction) -> DbResult<()> {
+        let idb_transaction = self.ctx.idb.transaction_with_str_and_mode(
+            "db_logs",
+            IdbTransactionMode::Readwrite,
+        ).unwrap();
+
+        let obj_store = idb_transaction.object_store("db_logs").unwrap();
+        let frame = IndexedDbBackendInner::transaction_to_store_frame(transaction);
+
+        let frame_js = serde_wasm_bindgen::to_value(&frame).unwrap();
+        obj_store.add(&frame_js).unwrap();
+
+        idb_transaction.commit().unwrap();
+
+        Ok(())
+    }
+
+    fn transaction_to_store_frame(transaction: &Transaction) -> IndexedDbStoreFrame {
+        let cap_len = transaction.dirty_pages.len();
+        let mut pages = Vec::<Vec<u8>>::with_capacity(cap_len);
+        let mut page_ids = Vec::<u32>::with_capacity(cap_len);
+
+        for (page_id, page) in &transaction.dirty_pages {
+            pages.push(page.data.clone());
+            page_ids.push(*page_id);
+        }
+
+        IndexedDbStoreFrame {
+            pages,
+            page_ids,
+        }
     }
 
     fn db_size(&self) -> u64 {

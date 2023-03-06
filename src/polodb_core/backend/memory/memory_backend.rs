@@ -7,24 +7,27 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::{Arc, Mutex};
 use bson::oid::ObjectId;
 use hashbrown::HashMap;
+use im::OrdMap as ImmutableMap;
 use crate::backend::Backend;
 use crate::{DbResult, TransactionType, DbErr};
 use crate::backend::memory::db_snapshot::{DbSnapshot, DbSnapshotDraft};
 use crate::page::RawPage;
 use crate::page::header_page_wrapper::HeaderPageWrapper;
 
-struct Transaction {
+pub(crate) struct Transaction {
     ty: TransactionType,
     draft: DbSnapshotDraft,
+    pub dirty_pages: ImmutableMap<u32, Arc<RawPage>>,
 }
 
 impl Transaction {
 
-    pub(super) fn new(ty: TransactionType, snapshot: DbSnapshot) -> Transaction {
+    pub(crate) fn new(ty: TransactionType, snapshot: DbSnapshot) -> Transaction {
         let draft = DbSnapshotDraft::new(snapshot);
         Transaction {
             ty,
             draft,
+            dirty_pages: ImmutableMap::new(),
         }
     }
 
@@ -58,7 +61,8 @@ impl Backend for MemoryBackend {
 
     fn commit(&self) -> DbResult<()> {
         let mut inner = self.inner.lock()?;
-        inner.commit()
+        let _ = inner.commit()?;
+        Ok(())
     }
 
     fn db_size(&self) -> u64 {
@@ -117,7 +121,8 @@ impl MemoryBackendInner {
         let mut snapshot_draft = DbSnapshotDraft::new(snapshot);
         snapshot_draft.write_page(&wrapper.0);
 
-        snapshot_draft.commit()
+        let (snapshot, _) = snapshot_draft.commit();
+        snapshot
     }
 
     pub(crate) fn new(page_size: NonZeroU32, init_block_count: NonZeroU64) -> MemoryBackendInner {
@@ -134,9 +139,12 @@ impl MemoryBackendInner {
         }
     }
 
-    fn merge_transaction(&mut self) {
-        let state = self.transaction.take().unwrap();
-        self.snapshot = state.draft.commit();
+    fn merge_transaction(&mut self) -> Transaction {
+        let mut state = self.transaction.take().unwrap();
+        let (snapshot, dirty_pages) = state.draft.commit();
+        self.snapshot = snapshot;
+        state.dirty_pages = dirty_pages;
+        state
     }
 
     fn recover_file_and_state(&mut self) {
@@ -211,14 +219,14 @@ impl MemoryBackendInner {
         Ok(())
     }
 
-    pub fn commit(&mut self) -> DbResult<()> {
+    pub fn commit(&mut self) -> DbResult<Transaction> {
         if self.transaction.is_none() {
             return Err(DbErr::CannotWriteDbWithoutTransaction);
         }
 
-        self.merge_transaction();
+        let transaction = self.merge_transaction();
 
-        Ok(())
+        Ok(transaction)
     }
 
     pub fn db_size(&self) -> u64 {
