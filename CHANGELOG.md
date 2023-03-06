@@ -1,4 +1,8 @@
 
+# 3.5.3
+
+- Upgrade dep `lru` to `0.10.0`
+
 # 3.5.2
 
 - Re-license to MPL-2.0
