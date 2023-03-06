@@ -97,7 +97,7 @@ impl BaseSession {
     }
 
     pub fn set_db_size(&self, db_size: u64) -> DbResult<()> {
-        let mut session = self.inner.as_ref().lock().unwrap();
+        let session = self.inner.as_ref().lock().unwrap();
         if session.backend.db_size() == db_size {
             return Ok(())
         }

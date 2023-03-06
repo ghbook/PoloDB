@@ -5,21 +5,20 @@
  */
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::collections::BTreeMap;
 use std::io::{Seek, Write, SeekFrom, Read};
 use std::cell::{Cell, RefCell};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use getrandom::getrandom;
 use crc64fast::Digest;
-use crate::data_structures::trans_map::TransMap;
+use im::OrdMap as ImmutableMap;
 use super::transaction_state::TransactionState;
 use super::frame_header::FrameHeader;
+use super::file_lock::*;
 use crate::transaction::TransactionType;
 use crate::page::RawPage;
 use crate::DbResult;
 use crate::error::DbErr;
-use super::file_lock::*;
 use crate::dump::{JournalDump, JournalFrameDump};
 
 static HEADER_DESP: &str       = "PoloDB Journal v0.3";
@@ -46,7 +45,7 @@ pub(super) struct JournalManager {
     db_file_size:      u64,
 
     // page_id => file_position
-    offset_map:        TransMap<u32, u64>,
+    offset_map:        ImmutableMap<u32, u64>,
 
     // count of all frames
     count:             u32,
@@ -93,7 +92,7 @@ impl JournalManager {
             salt2: generate_a_nonzero_salt(),
             transaction_state: None,
 
-            offset_map: TransMap::new(),
+            offset_map: ImmutableMap::new(),
             count: 0,
         };
 
@@ -322,7 +321,7 @@ impl JournalManager {
         let state = self.transaction_state.take().unwrap();
         self.db_file_size = state.db_file_size;
         self.count = state.frame_count;
-        self.offset_map = state.offset_map.commit();
+        self.offset_map = state.offset_map.clone();
         (state.ty, state.frame_count)
     }
 
@@ -475,8 +474,7 @@ impl JournalManager {
         db_file.set_len(self.db_file_size)?;
 
         {
-            let mut offset_map = BTreeMap::new();
-            self.offset_map.traverse(&mut offset_map);
+            let offset_map = self.offset_map.clone();
 
             let mut journal_file = self.journal_file.borrow_mut();
             for (page_id, offset) in offset_map {
@@ -511,7 +509,7 @@ impl JournalManager {
         // clear all data
         self.count = 0;
 
-        self.offset_map = TransMap::new();
+        self.offset_map = ImmutableMap::new();
 
         self.plus_salt1();
         self.salt2 = generate_a_nonzero_salt();

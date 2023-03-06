@@ -5,12 +5,12 @@
  */
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use crate::data_structures::trans_map::{TransMap, TransMapDraft};
+use im::OrdMap as ImmutableMap;
 use crate::page::RawPage;
 
 #[derive(Clone)]
 pub(crate) struct DbSnapshot {
-    page_map: TransMap<u32, Arc<RawPage>>,
+    page_map: ImmutableMap<u32, Arc<RawPage>>,
     page_size: NonZeroU32,
     db_file_size: u64,
 }
@@ -19,7 +19,7 @@ impl DbSnapshot {
 
     pub fn new(page_size: NonZeroU32, db_file_size: u64) -> DbSnapshot {
         DbSnapshot {
-            page_map: TransMap::new(),
+            page_map: ImmutableMap::new(),
             page_size,
             db_file_size
         }
@@ -39,7 +39,7 @@ impl DbSnapshot {
 
 pub(crate) struct DbSnapshotDraft {
     base: DbSnapshot,
-    page_map_draft: TransMapDraft<u32, Arc<RawPage>>,
+    page_map_draft: ImmutableMap<u32, Arc<RawPage>>,
     db_file_size: u64,
 }
 
@@ -47,7 +47,7 @@ impl DbSnapshotDraft {
 
     pub fn new(base: DbSnapshot) -> DbSnapshotDraft {
         let db_file_size = base.db_file_size;
-        let page_map_draft = TransMapDraft::new(base.page_map.clone());
+        let page_map_draft = base.page_map.clone();
         DbSnapshotDraft {
             base,
             page_map_draft,
@@ -59,7 +59,7 @@ impl DbSnapshotDraft {
         let db_file_size = self.db_file_size;
         let page_size = self.base.page_size;
         DbSnapshot {
-            page_map: self.page_map_draft.commit(),
+            page_map: self.page_map_draft.clone(),
             page_size,
             db_file_size,
         }

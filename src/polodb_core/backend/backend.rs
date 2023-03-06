@@ -16,15 +16,15 @@ pub(crate) struct AutoStartResult {
 
 pub(crate) trait Backend {
     fn read_page(&self, page_id: u32, session_id: Option<&ObjectId>) -> DbResult<Arc<RawPage>>;
-    fn write_page(&mut self, page: &RawPage, session_id: Option<&ObjectId>) -> DbResult<()>;
-    fn commit(&mut self) -> DbResult<()>;
+    fn write_page(&self, page: &RawPage, session_id: Option<&ObjectId>) -> DbResult<()>;
+    fn commit(&self) -> DbResult<()>;
     fn db_size(&self) -> u64;
-    fn set_db_size(&mut self, size: u64) -> DbResult<()>;
+    fn set_db_size(&self, size: u64) -> DbResult<()>;
     fn transaction_type(&self) -> Option<TransactionType>;
-    fn upgrade_read_transaction_to_write(&mut self) -> DbResult<()>;
-    fn rollback(&mut self) -> DbResult<()>;
-    fn start_transaction(&mut self, ty: TransactionType) -> DbResult<()>;
+    fn upgrade_read_transaction_to_write(&self) -> DbResult<()>;
+    fn rollback(&self) -> DbResult<()>;
+    fn start_transaction(&self, ty: TransactionType) -> DbResult<()>;
 
-    fn new_session(&mut self, id: &ObjectId) -> DbResult<()>;
-    fn remove_session(&mut self, id: &ObjectId) -> DbResult<()>;
+    fn new_session(&self, id: &ObjectId) -> DbResult<()>;
+    fn remove_session(&self, id: &ObjectId) -> DbResult<()>;
 }

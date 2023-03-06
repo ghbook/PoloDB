@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 use std::num::{NonZeroU32, NonZeroU64};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use bson::oid::ObjectId;
 use hashbrown::HashMap;
 use crate::backend::Backend;
@@ -31,13 +31,85 @@ impl Transaction {
 }
 
 pub(crate) struct MemoryBackend {
+    inner: Mutex<MemoryBackendInner>,
+}
+
+impl MemoryBackend {
+
+    pub(crate) fn new(page_size: NonZeroU32, init_block_count: NonZeroU64) -> MemoryBackend {
+        let inner = MemoryBackendInner::new(page_size, init_block_count);
+        MemoryBackend {
+            inner: Mutex::new(inner),
+        }
+    }
+
+}
+
+impl Backend for MemoryBackend {
+    fn read_page(&self, page_id: u32, session_id: Option<&ObjectId>) -> DbResult<Arc<RawPage>> {
+        let inner = self.inner.lock()?;
+        inner.read_page(page_id, session_id)
+    }
+
+    fn write_page(&self, page: &RawPage, session_id: Option<&ObjectId>) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.write_page(page, session_id)
+    }
+
+    fn commit(&self) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.commit()
+    }
+
+    fn db_size(&self) -> u64 {
+        let inner = self.inner.lock().unwrap();
+        inner.db_size()
+    }
+
+    fn set_db_size(&self, size: u64) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.set_db_size(size)
+    }
+
+    fn transaction_type(&self) -> Option<TransactionType> {
+        let inner = self.inner.lock().unwrap();
+        inner.transaction_type()
+    }
+
+    fn upgrade_read_transaction_to_write(&self) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.upgrade_read_transaction_to_write()
+    }
+
+    fn rollback(&self) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.rollback()
+    }
+
+    fn start_transaction(&self, ty: TransactionType) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.start_transaction(ty)
+    }
+
+    fn new_session(&self, id: &ObjectId) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.new_session(id)
+    }
+
+    fn remove_session(&self, id: &ObjectId) -> DbResult<()> {
+        let mut inner = self.inner.lock()?;
+        inner.remove_session(id)
+    }
+}
+
+pub(crate) struct MemoryBackendInner {
     page_size:   NonZeroU32,
     snapshot:    DbSnapshot,
     transaction: Option<Transaction>,
     state_map:   HashMap<ObjectId, Transaction>,
 }
 
-impl MemoryBackend {
+impl MemoryBackendInner {
 
     fn force_write_first_block(snapshot: DbSnapshot, page_size: NonZeroU32) -> DbSnapshot {
         let wrapper = HeaderPageWrapper::init(0, page_size);
@@ -48,13 +120,13 @@ impl MemoryBackend {
         snapshot_draft.commit()
     }
 
-    pub(crate) fn new(page_size: NonZeroU32, init_block_count: NonZeroU64) -> MemoryBackend {
+    pub(crate) fn new(page_size: NonZeroU32, init_block_count: NonZeroU64) -> MemoryBackendInner {
         let data_len = init_block_count.get() * (page_size.get() as u64);
-        let snapshot = MemoryBackend::force_write_first_block(
+        let snapshot = MemoryBackendInner::force_write_first_block(
             DbSnapshot::new(page_size, data_len),
             page_size
         );
-        MemoryBackend {
+        MemoryBackendInner {
             page_size,
             snapshot,
             transaction: None,
@@ -92,10 +164,8 @@ impl MemoryBackend {
         let page = test_page.expect(format!("page not exist: {}", page_id).as_str());
         Ok(page)
     }
-}
 
-impl Backend for MemoryBackend {
-    fn read_page(&self, page_id: u32, session_id: Option<&ObjectId>) -> DbResult<Arc<RawPage>> {
+    pub fn read_page(&self, page_id: u32, session_id: Option<&ObjectId>) -> DbResult<Arc<RawPage>> {
         match session_id {
             Some(session_id) => {
                 // read the page from the state
@@ -119,9 +189,9 @@ impl Backend for MemoryBackend {
         }
     }
 
-    fn write_page(&mut self, page: &RawPage, session_id: Option<&ObjectId>) -> DbResult<()> {
+    pub fn write_page(&mut self, page: &RawPage, session_id: Option<&ObjectId>) -> DbResult<()> {
         if session_id.is_some() {
-            unimplemented!()
+            unreachable!()
         }
 
         match &self.transaction {
@@ -141,7 +211,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn commit(&mut self) -> DbResult<()> {
+    pub fn commit(&mut self) -> DbResult<()> {
         if self.transaction.is_none() {
             return Err(DbErr::CannotWriteDbWithoutTransaction);
         }
@@ -151,7 +221,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn db_size(&self) -> u64 {
+    pub fn db_size(&self) -> u64 {
         if let Some(transaction) = &self.transaction {
             transaction.draft.db_file_size()
         } else {
@@ -159,18 +229,18 @@ impl Backend for MemoryBackend {
         }
     }
 
-    fn set_db_size(&mut self, size: u64) -> DbResult<()> {
+    pub fn set_db_size(&mut self, size: u64) -> DbResult<()> {
         if let Some(transaction) = &mut self.transaction {
             transaction.draft.set_db_file_size(size);
         }
         Ok(())
     }
 
-    fn transaction_type(&self) -> Option<TransactionType> {
+    pub fn transaction_type(&self) -> Option<TransactionType> {
         self.transaction.as_ref().map(|state| state.ty)
     }
 
-    fn upgrade_read_transaction_to_write(&mut self) -> DbResult<()> {
+    pub fn upgrade_read_transaction_to_write(&mut self) -> DbResult<()> {
         let new_state = Transaction::new(
             TransactionType::Write,
             self.snapshot.clone(),
@@ -179,7 +249,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn rollback(&mut self) -> DbResult<()> {
+    pub fn rollback(&mut self) -> DbResult<()> {
         if self.transaction.is_none() {
             return Err(DbErr::RollbackNotInTransaction);
         }
@@ -187,7 +257,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn start_transaction(&mut self, ty: TransactionType) -> DbResult<()> {
+    pub fn start_transaction(&mut self, ty: TransactionType) -> DbResult<()> {
         if self.transaction.is_some() {
             return Err(DbErr::Busy);
         }
@@ -197,7 +267,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn new_session(&mut self, id: &ObjectId) -> DbResult<()> {
+    pub fn new_session(&mut self, id: &ObjectId) -> DbResult<()> {
         let transaction = Transaction::new(
             TransactionType::Read,
             self.snapshot.clone(),
@@ -206,7 +276,7 @@ impl Backend for MemoryBackend {
         Ok(())
     }
 
-    fn remove_session(&mut self, id: &ObjectId) -> DbResult<()> {
+    pub fn remove_session(&mut self, id: &ObjectId) -> DbResult<()> {
         self.state_map.remove(id);
         Ok(())
     }
@@ -216,9 +286,8 @@ impl Backend for MemoryBackend {
 mod tests {
     use crate::{Config, TransactionType};
     use crate::page::RawPage;
-    use crate::backend::memory::MemoryBackend;
-    use crate::backend::Backend;
     use std::num::NonZeroU32;
+    use crate::backend::memory::memory_backend::MemoryBackendInner;
 
     fn make_raw_page(page_id: u32) -> RawPage {
         let mut page = RawPage::new(
@@ -238,7 +307,7 @@ mod tests {
     #[test]
     fn test_commit() {
         let config = Config::default();
-        let mut backend = MemoryBackend::new(
+        let mut backend = MemoryBackendInner::new(
             NonZeroU32::new(4096).unwrap(), config.init_block_count
         );
 

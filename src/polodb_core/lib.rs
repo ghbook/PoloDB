@@ -126,7 +126,6 @@ mod transaction;
 mod bson_utils;
 pub mod results;
 pub mod commands;
-mod data_structures;
 mod collection_info;
 
 #[cfg(not(target_arch = "wasm32"))]
