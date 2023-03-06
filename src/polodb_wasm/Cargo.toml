@@ -4,6 +4,8 @@ version = "3.5.2"
 authors = ["Vincent Chan <okcdz@diverse.space>"]
 license = "MPL-2.0"
 edition = "2018"
+description = "An embedded document database"
+repository = "https://github.com/PoloDB/PoloDB"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

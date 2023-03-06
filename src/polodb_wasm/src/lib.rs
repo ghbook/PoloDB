@@ -56,7 +56,7 @@ impl DatabaseWrapper {
         let window = web_sys::window().unwrap();
         let factory = window.indexed_db().unwrap().expect("indexeddb not supported");
 
-        let open_request = factory.open(name).unwrap();
+        let open_request = factory.open_with_u32(name, 0).unwrap();
 
         {
             let db = self.db.clone();
@@ -82,6 +82,14 @@ impl DatabaseWrapper {
             });
             open_request.set_onsuccess(Some(onsuccess.as_ref().unchecked_ref()));
             open_request.set_onerror(self.onerror.as_ref());
+
+            let open_request_dup = open_request.clone();
+            let on_onupgradeneeded = Closure::<dyn Fn()>::new(move || {
+                let open_request_dup = open_request_dup.clone();
+                let db = open_request_dup.result().unwrap().dyn_into::<IdbDatabase>().unwrap();
+                db.create_object_store("db_logs").unwrap();
+            });
+            open_request.set_onupgradeneeded(Some(on_onupgradeneeded.as_ref().unchecked_ref()));
         }
 
         Ok(())
