@@ -6,8 +6,10 @@
 use std::cell::RefCell;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
+use std::io::Write;
 use bson::oid::ObjectId;
 use web_sys::IdbTransactionMode;
+use lz4_flex::frame::FrameEncoder;
 use crate::backend::Backend;
 use crate::backend::memory::{MemoryBackendInner, Transaction};
 use crate::{DbResult, TransactionType};
@@ -141,7 +143,8 @@ impl IndexedDbBackendInner {
         let mut page_ids = Vec::<u32>::with_capacity(cap_len);
 
         for (page_id, page) in &transaction.dirty_pages {
-            pages.push(page.data.clone());
+            let out_data = IndexedDbBackendInner::fast_compress(page.as_ref());
+            pages.push(out_data);
             page_ids.push(*page_id);
         }
 
@@ -149,6 +152,14 @@ impl IndexedDbBackendInner {
             pages,
             page_ids,
         }
+    }
+
+    fn fast_compress(page: &RawPage) -> Vec<u8> {
+        let mut out_data = Vec::<u8>::new();
+        let mut encoder = FrameEncoder::new(&mut out_data);
+        encoder.write_all(&page.data).unwrap();
+
+        out_data
     }
 
     fn db_size(&self) -> u64 {
