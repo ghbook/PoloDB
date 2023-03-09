@@ -10,13 +10,5 @@ pub(crate) struct IndexedDbStoreFrame {
     pub pages: Vec<Vec<u8>>,
     #[serde(rename = "pageIds")]
     pub page_ids: Vec<u32>,
-}
-
-impl Default for IndexedDbStoreFrame {
-    fn default() -> Self {
-        IndexedDbStoreFrame {
-            pages: Vec::new(),
-            page_ids: Vec::new(),
-        }
-    }
+    pub sid: String,
 }

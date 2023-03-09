@@ -10,6 +10,9 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 use polodb_core::{Database, bson};
+use getrandom::getrandom;
+
+static ID_CANDIDATES: &'static str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 #[wasm_bindgen(js_name = Database)]
 pub struct DatabaseWrapper {
@@ -46,6 +49,21 @@ impl DatabaseWrapper {
         Ok(())
     }
 
+    fn generate_session_id(len: usize) -> String {
+        let mut buffer: Vec<u8> = vec![0; len];
+        getrandom(&mut buffer).unwrap();
+
+        let mut result = String::new();
+
+        for byte in buffer {
+            let index = (byte as usize) % ID_CANDIDATES.len();
+            let char: u8 = ID_CANDIDATES.as_bytes()[index];
+            result.push(char as char);
+        }
+
+        return result;
+    }
+
     fn open_indexeddb(&mut self, name: &str) -> Result<(), JsError> {
         let window = web_sys::window().unwrap();
         let factory = window.indexed_db().unwrap().expect("indexeddb not supported");
@@ -62,17 +80,30 @@ impl DatabaseWrapper {
                 let user_onsuccess = user_onsuccess.clone();
                 let target = Reflect::get(event.as_ref(), &"target".into()).unwrap();
                 let idb = Reflect::get(target.as_ref(), &"result".into()).unwrap().dyn_into::<IdbDatabase>().unwrap();
+                let session_id = DatabaseWrapper::generate_session_id(6);
+
+                let loaded = {
+                    let db2 = db.clone();
+                    Rc::new(move || {
+                        let user_onsuccess = user_onsuccess.clone();
+                        let db_ref = db2.as_ref().borrow();
+                        let _db = db_ref.as_ref().unwrap();
+
+                        if let Some(user_onsuccess) = user_onsuccess {
+                            user_onsuccess.call0(&JsValue::UNDEFINED).unwrap();
+                        }
+                    })
+                };
+
                 // val
                 let raw_db = Database::open_indexeddb(IndexedDbContext {
                     name,
                     idb,
+                    session_id,
+                    loaded,
                 }).unwrap();
                 let mut db_ref = db.as_ref().borrow_mut();
                 *db_ref = Some(raw_db);
-
-                if let Some(user_onsuccess) = user_onsuccess {
-                    user_onsuccess.call0(&JsValue::UNDEFINED).unwrap();
-                }
             });
             open_request.set_onsuccess(Some(onsuccess.as_ref().unchecked_ref()));
             open_request.set_onerror(self.onerror.as_ref());

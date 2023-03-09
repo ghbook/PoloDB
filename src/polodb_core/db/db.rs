@@ -7,6 +7,7 @@ use std::borrow::Borrow;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::io::Read;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use bson::{Bson, Document};
 use serde::Serialize;
@@ -44,6 +45,8 @@ pub(super) fn consume_handle_to_vec<T: DeserializeOwned>(handle: &mut DbHandle, 
 pub struct IndexedDbContext {
     pub name: String,
     pub idb: web_sys::IdbDatabase,
+    pub session_id: String,
+    pub loaded: Rc<dyn Fn()>,
 }
 
 ///
